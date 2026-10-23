@@ -1,0 +1,150 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model User {
+  id              String            @id @default(uuid())
+  email           String            @unique
+  name            String?
+  passwordHash    String
+  isPlatformAdmin Boolean           @default(false)
+  lastLoginAt     DateTime?
+  accentColor     String?           @default("#4f46e5")
+  preferredTheme  String?           @default("dark")
+  workspaces      WorkspaceMember[]
+  createdBoards   Board[]
+  boardShares     BoardShare[]
+  sentInvitations Invitation[]      @relation("SentInvitations")
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model Workspace {
+  id          String            @id @default(uuid())
+  name        String
+  slug        String            @unique
+  members     WorkspaceMember[]
+  folders     Folder[]
+  boards      Board[]
+  invitations Invitation[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model WorkspaceMember {
+  id          String     @id @default(uuid())
+  userId      String
+  workspaceId String
+  role        Role       @default(EDITOR)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+model Folder {
+  id          String     @id @default(uuid())
+  name        String
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  boards      Board[]
+  parentId    String?
+  parent      Folder?    @relation("SubFolders", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Folder[]   @relation("SubFolders")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([workspaceId])
+  @@index([parentId])
+}
+
+model Board {
+  id           String       @id @default(uuid())
+  title        String
+  workspaceId  String
+  folderId     String?
+  creatorId    String
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  folder       Folder?      @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  creator      User         @relation(fields: [creatorId], references: [id])
+  
+  // Public Sharing & Access Controls
+  isPublic     Boolean      @default(false)
+  publicAccess Role         @default(VIEWER)
+  shareToken   String?      @unique
+  shares       BoardShare[]
+
+  // Excalidraw Canvas Data
+  elements     Json         @default("[]")
+  appState     Json         @default("{}")
+  files        Json         @default("{}")
+
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([workspaceId])
+  @@index([folderId])
+  @@index([shareToken])
+}
+
+model BoardShare {
+  id        String   @id @default(uuid())
+  boardId   String
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email     String
+  role      Role     @default(VIEWER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([boardId, email])
+  @@index([boardId])
+  @@index([userId])
+}
+
+model Invitation {
+  id          String    @id @default(uuid())
+  email       String
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        Role      @default(EDITOR)
+  token       String    @unique
+  invitedById String
+  invitedBy   User      @relation("SentInvitations", fields: [invitedById], references: [id], onDelete: Cascade)
+  status      String    @default("PENDING") // PENDING, ACCEPTED
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId])
+  @@index([token])
+}
+
+model SystemSetting {
+  id              String   @id @default("global")
+  smtpHost        String?
+  smtpPort        Int?     @default(587)
+  smtpUser        String?
+  smtpPassword    String?
+  smtpSecure      Boolean  @default(false)
+  smtpFrom        String?
+  globalLibraries Json     @default("[]")
+  defaultGridMode Boolean  @default(false)
+  defaultTheme    String   @default("dark")
+  updatedAt       DateTime @updatedAt
+}
